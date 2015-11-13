@@ -23,16 +23,15 @@ jimport('EmailTemplates.init');
  */
 class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 {
-    protected $paymentService = 'Stripe Connect';
-    protected $serviceAlias = 'stripeconnect';
+    public function __construct(&$subject, $config = array())
+    {
+        parent::__construct($subject, $config);
 
-    protected $textPrefix = 'PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT';
-    protected $debugType  = 'STRIPECONNECT_PAYMENT_PLUGIN_DEBUG';
-
-    /**
-     * @var JApplicationSite
-     */
-    protected $app;
+        $this->serviceProvider = 'Stripe Connect';
+        $this->serviceAlias    = 'stripeconnect';
+        $this->textPrefix     .= '_' . \JString::strtoupper($this->serviceAlias);
+        $this->debugType      .= '_' . \JString::strtoupper($this->serviceAlias);
+    }
 
     /**
      * This method prepares a payment gateway - buttons, forms,...
@@ -464,8 +463,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
                             'captured' => (!$response->captured) ? 'false' : 'true',
                             'created' => $response->created,
                             'description' => $response->description,
-                        ),
-                        'doCapture'
+                        )
                     );
 
                     $transaction->setParentId($item->txn_id);
@@ -630,42 +628,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
     }
 
     /**
-     * This method is executed after complete payment.
-     * It is used to be sent mails to user and administrator
-     *
-     * @param string $context
-     * @param stdClass $transaction Transaction data
-     * @param Joomla\Registry\Registry $params      Component parameters
-     * @param stdClass $project     Project data
-     * @param stdClass $reward      Reward data
-     * @param stdClass $paymentSession   Payment session data.
-     *
-     * @return void
-     */
-    public function onAfterPayment($context, &$transaction, &$params, &$project, &$reward, &$paymentSession)
-    {
-        if (strcmp('com_crowdfunding.notify.' . $this->paymentService, $context) !== 0) {
-            return;
-        }
-
-        if ($this->app->isAdmin()) {
-            return;
-        }
-
-        $doc = JFactory::getDocument();
-        /**  @var $doc JDocumentHtml */
-
-        // Check document type
-        $docType = $doc->getType();
-        if (strcmp('raw', $docType) !== 0) {
-            return;
-        }
-
-        // Send mails
-        $this->sendMails($project, $transaction, $params, $reward);
-    }
-
-    /**
      * Validate transaction data.
      *
      * @param stdClass              $item
@@ -689,7 +651,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             'txn_currency'     => $currencyCode,
             'txn_status'       => 'pending',
             'txn_date'         => $date->toSql(),
-            'service_provider' => $this->paymentService,
+            'service_provider' => $this->serviceProvider,
             'service_alias'    => $this->serviceAlias
         );
 

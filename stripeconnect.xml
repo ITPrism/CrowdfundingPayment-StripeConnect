@@ -51,10 +51,10 @@
                     <option value="false">JNO</option>
                     <option value="true">JYES</option>
                 </field>
-                <field name="payment_receiver" type="list" default="site_owner" label="PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT_PAYMENT_RECEIVER" description="PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT_PAYMENT_RECEIVER_DESC">
+                <!--<field name="payment_receiver" type="list" default="site_owner" label="PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT_PAYMENT_RECEIVER" description="PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT_PAYMENT_RECEIVER_DESC">
                     <option value="site_owner">PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT_SITE_OWNER</option>
                     <option value="project_owner">PLG_CROWDFUNDINGPAYMENT_STRIPECONNECT_PROJECT_OWNER</option>
-                </field>
+                </field>-->
             </fieldset>
         </fields>
 	</config>
