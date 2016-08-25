@@ -1,6 +1,6 @@
-Crowdfunding Payment - Stripe Connect
+CrowdfundingPayment - Stripe Connect
 ==========================
-( Version 1.0 )
+( Version 1.1 )
 - - -
 
 This is a plug-in for Crowdfunding platform, which provides an ability to make payments via Stripe Connect.
@@ -10,3 +10,7 @@ This is a plug-in for Crowdfunding platform, which provides an ability to make p
 
 Changelog
 ---------
+
+###v1.1
+* Fixed the namespaces of the classes EmailTemplates and CrowdfundingFinance.
+* Added Update server. It will be possible to upgrade this extension via Joomla! Update Manager.

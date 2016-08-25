@@ -3,7 +3,7 @@
  * @package      Crowdfunding
  * @subpackage   Plugins
  * @author       Todor Iliev
- * @copyright    Copyright (C) 2015 Todor Iliev <todor@itprism.com>. All rights reserved.
+ * @copyright    Copyright (C) 2016 Todor Iliev <todor@itprism.com>. All rights reserved.
  * @license      GNU General Public License version 3 or later; see LICENSE.txt
  */
 
@@ -12,8 +12,8 @@ defined('_JEXEC') or die;
 
 jimport('Prism.init');
 jimport('Crowdfunding.init');
-jimport('CrowdfundingFinance.init');
-jimport('EmailTemplates.init');
+jimport('Crowdfundingfinance.init');
+jimport('Emailtemplates.init');
 
 /**
  * Crowdfunding Stripe Connect Payment Plug-in
@@ -29,8 +29,8 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
         $this->serviceProvider = 'Stripe Connect';
         $this->serviceAlias    = 'stripeconnect';
-        $this->textPrefix     .= '_' . \JString::strtoupper($this->serviceAlias);
-        $this->debugType      .= '_' . \JString::strtoupper($this->serviceAlias);
+        $this->textPrefix     .= '_' . strtoupper($this->serviceAlias);
+        $this->debugType      .= '_' . strtoupper($this->serviceAlias);
     }
 
     /**
@@ -41,6 +41,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      * @param stdClass                 $item    A project data.
      * @param Joomla\Registry\Registry $params  The parameters of the component
      *
+     * @throws \InvalidArgumentException
      * @return null|string
      */
     public function onProjectPayment($context, &$item, &$params)
@@ -84,7 +85,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         // Get keys.
         $cfFinanceParams = JComponentHelper::getParams('com_crowdfundingfinance');
 
-        $apiKeys = CrowdfundingFinance\Stripe\Helper::getKeys($cfFinanceParams);
+        $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
         if (!$apiKeys['published_key'] or !$apiKeys['secret_key']) {
             $html[] = '<p class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_CONFIGURATION') . '</p>';
             $html[] = '</div>'; // Close the div "well".
@@ -149,8 +150,11 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      * This method processes transaction data that comes from the payment gateway.
      *
      * @param string                   $context This string gives information about that where it has been executed the trigger.
-     * @param stdClass                 $item 
+     * @param stdClass                 $item
      * @param Joomla\Registry\Registry $params  The parameters of the component
+     *
+     * @throws \InvalidArgumentException
+     * @throws \UnexpectedValueException
      *
      * @return null|array
      */
@@ -244,7 +248,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
         // Get API keys
         $cfFinanceParams = JComponentHelper::getParams('com_crowdfundingfinance');
-        $apiKeys = CrowdfundingFinance\Stripe\Helper::getKeys($cfFinanceParams);
+        $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
 
         // Import Stripe library.
         jimport('Prism.libs.Stripe.init');
@@ -255,7 +259,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
         // Create the charge on Stripe's servers - this will charge the user's card
         try {
-
             // Create a customer
             $customer = Stripe\Customer::create(
                 array(
@@ -312,7 +315,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             $this->closePaymentSession($paymentSession, true);
 
         } catch (Stripe\Error\Card $e) {
-
             $this->log->add(
                 JText::_($this->textPrefix . '_ERROR_STRIPE_ERROR'),
                 $this->debugType,
@@ -326,7 +328,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             return $output;
 
         } catch (Exception $e) {
-
             $this->log->add(
                 JText::_($this->textPrefix . '_ERROR_SYSTEM'),
                 $this->debugType,
@@ -377,9 +378,8 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         $cfFinanceParams = JComponentHelper::getParams('com_crowdfundingfinance');
 
         try {
-
             // Get keys.
-            $apiKeys = CrowdfundingFinance\Stripe\Helper::getKeys($cfFinanceParams);
+            $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
             if (!$apiKeys['client_id']) {
                 $message = array(
                     'text' => JText::_($this->textPrefix . '_ERROR_CONFIGURATION'),
@@ -391,7 +391,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
             $platformAlias = (!$apiKeys['test']) ? 'production' : 'test';
 
-            $payout = new CrowdfundingFinance\Payout(JFactory::getDbo());
+            $payout = new Crowdfundingfinance\Payout(JFactory::getDbo());
             $payout->setSecretKey($this->app->get('secret'));
             $payout->load(array('project_id' => $item->project_id));
 
@@ -404,7 +404,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
                 return $message;
             }
 
-            $projectOwnerToken = CrowdfundingFinance\Stripe\Helper::getPayoutAccessToken($apiKeys, $payout, $cfFinanceParams->get('stripe_expiration_period', 7));
+            $projectOwnerToken = Crowdfundingfinance\Stripe\Helper::getPayoutAccessToken($apiKeys, $payout, $cfFinanceParams->get('stripe_expiration_period', 7));
             if ($projectOwnerToken === null) {
                 $message = array(
                     'text' => JText::_($this->textPrefix . '_ERROR_NO_PAYOUT_OPTIONS'),
@@ -430,16 +430,17 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
             // Create transaction object and get payment service data (customer ID).
             $transaction = new Crowdfunding\Transaction(JFactory::getDbo());
+            /** @var Crowdfunding\Transaction\Transaction $transaction */
             $transaction->load($item->id);
 
             $serviceData = $transaction->getServiceData($this->app->get('secret'));
 
-            if (JString::strlen($serviceData->get('customer_id')) > 0) {
-
+            if (strlen($serviceData->get('customer_id')) > 0) {
                 jimport('Prism.libs.Stripe.init');
 
                 Stripe\Stripe::setApiKey($apiKeys['secret_key']);
 
+                /** @var stdClass $response */
                 $response = Stripe\Charge::create(
                     array(
                         'amount'      => $amount,
@@ -497,8 +498,8 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
                     return $message;
                 }
-            } else {
 
+            } else {
                 // DEBUG DATA
                 JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'), $this->debugType, var_export($item, true)) : null;
 
@@ -514,7 +515,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             }
 
         } catch (Exception $e) {
-
             $this->log->add(JText::_($this->textPrefix . '_ERROR_DOCAPTURE'), $this->debugType, $e->getMessage());
 
             $message = array(
@@ -562,18 +562,17 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         }
 
         try {
-
+            /** @var Crowdfunding\Transaction\Transaction $transaction */
             $transaction = new Crowdfunding\Transaction(JFactory::getDbo());
             $transaction->load($item->id);
 
             $serviceData = $transaction->getServiceData($this->app->get('secret'));
 
             // Remove the customer on Stripe.
-            if (JString::strlen($serviceData->get('customer_id')) > 0) {
-
+            if (strlen($serviceData->get('customer_id')) > 0) {
                 // Get keys.
                 $cfFinanceParams = JComponentHelper::getParams('com_crowdfundingfinance');
-                $apiKeys = CrowdfundingFinance\Stripe\Helper::getKeys($cfFinanceParams);
+                $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
                 if (!$apiKeys['secret_key']) {
                     $this->log->add(
                         JText::_($this->textPrefix . '_ERROR_SECRET_KEY_MISSING'),
@@ -582,7 +581,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
                     );
 
                 } else {
-
                     jimport('Prism.libs.Stripe.init');
 
                     Stripe\Stripe::setApiKey($apiKeys['secret_key']);
@@ -607,7 +605,6 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             $transaction->updateStatus();
 
         } catch (Exception $e) {
-
             // DEBUG DATA
             JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_ERROR_DOVOID'), $this->debugType, $e->getMessage()) : null;
 
@@ -645,8 +642,8 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             'investor_id'      => $paymentSession->getUserId(),
             'receiver_id'      => (int)$item->user_id,
             'project_id'       => $paymentSession->getProjectId(),
-            'reward_id'        => ($paymentSession->isAnonymous()) ? 0 : $paymentSession->getRewardId(),
-            'txn_id'           => JString::strtoupper(Prism\Utilities\StringHelper::generateRandomString(16, 'STXN')),
+            'reward_id'        => $paymentSession->isAnonymous() ? 0 : $paymentSession->getRewardId(),
+            'txn_id'           => strtoupper(Prism\Utilities\StringHelper::generateRandomString(16, 'STXN')),
             'txn_amount'       => $item->amount,
             'txn_currency'     => $currencyCode,
             'txn_status'       => 'pending',
@@ -677,6 +674,9 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      * @param Crowdfunding\Project $project
      * @param string$secret
      *
+     * @throws \InvalidArgumentException
+     * @throws \RuntimeException
+     *
      * @return null|array
      */
     protected function storeTransaction(array $transactionData, Crowdfunding\Project $project, $secret)
@@ -685,6 +685,8 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         $keys        = array(
             'txn_id' => Joomla\Utilities\ArrayHelper::getValue($transactionData, 'txn_id')
         );
+
+        /** @var Crowdfunding\Transaction\Transaction $transaction */
         $transaction = new Crowdfunding\Transaction(JFactory::getDbo());
         $transaction->load($keys);
 
