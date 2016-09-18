@@ -60,6 +60,6 @@
 	</config>
 
     <updateservers>
-        <server type="extension" priority="1" name="CrowdfundingPayment - Stripe Connect ( from CDN )">http://cdn.itprism.com/updates/crowdfunding/plugins/stripeconnect.xml</server>
+        <server type="extension" priority="1" name="CrowdfundingPayment - Stripe Connect ( from CDN )">http://cdn.itprism.com/updates/crowdfunding/plugins/plg_crowdfundingpayment_stripeconnect.xml</server>
     </updateservers>
 </extension>
