@@ -7,6 +7,11 @@
  * @license      GNU General Public License version 3 or later; see LICENSE.txt
  */
 
+use Crowdfunding\Transaction\Transaction;
+use Crowdfunding\Transaction\TransactionManager;
+use Crowdfunding\Reward;
+use Joomla\Utilities\ArrayHelper;
+
 // no direct access
 defined('_JEXEC') or die;
 
@@ -14,6 +19,12 @@ jimport('Prism.init');
 jimport('Crowdfunding.init');
 jimport('Crowdfundingfinance.init');
 jimport('Emailtemplates.init');
+
+JObserverMapper::addObserverClassToClass(
+    'Crowdfunding\\Observer\\Transaction\\TransactionObserver',
+    'Crowdfunding\\Transaction\\TransactionManager',
+    array('typeAlias' => 'com_crowdfunding.payment')
+);
 
 /**
  * Crowdfunding Stripe Connect Payment Plug-in
@@ -25,12 +36,10 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 {
     public function __construct(&$subject, $config = array())
     {
-        parent::__construct($subject, $config);
-
         $this->serviceProvider = 'Stripe Connect';
         $this->serviceAlias    = 'stripeconnect';
-        $this->textPrefix     .= '_' . strtoupper($this->serviceAlias);
-        $this->debugType      .= '_' . strtoupper($this->serviceAlias);
+
+        parent::__construct($subject, $config);
     }
 
     /**
@@ -44,7 +53,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      * @throws \InvalidArgumentException
      * @return null|string
      */
-    public function onProjectPayment($context, &$item, &$params)
+    public function onProjectPayment($context, $item, $params)
     {
         if (strcmp('com_crowdfunding.payment', $context) !== 0) {
             return null;
@@ -71,13 +80,13 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
         $userId = (int)JFactory::getUser()->get('id');
         if ($userId === 0) {
-            $html[] = '<p class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_NOT_REGISTERED_USER') . '</p>';
+            $html[] = '<div class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_NOT_REGISTERED_USER') . '</div>';
             $html[] = '</div>'; // Close the div "well".
             return implode("\n", $html);
         }
 
         if (!JComponentHelper::isInstalled('com_crowdfundingfinance')) {
-            $html[] = '<p class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_CFFINANCE_NOT_INSTALLED') . '</p>';
+            $html[] = '<div class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_CFFINANCE_NOT_INSTALLED') . '</div>';
             $html[] = '</div>'; // Close the div "well".
             return implode("\n", $html);
         }
@@ -87,7 +96,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
         $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
         if (!$apiKeys['published_key'] or !$apiKeys['secret_key']) {
-            $html[] = '<p class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_CONFIGURATION') . '</p>';
+            $html[] = '<div class="bg-warning p-10-5"><span class="fa fa-warning"></span> ' . JText::_($this->textPrefix . '_ERROR_CONFIGURATION') . '</div>';
             $html[] = '</div>'; // Close the div "well".
             return implode("\n", $html);
         }
@@ -138,7 +147,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         }
 
         if ($this->params->get('sandbox_enabled', 1)) {
-            $html[] = '<p class="bg-info p-10-5 mt-5"><span class="fa fa-info-circle"></span> ' . JText::_($this->textPrefix . '_WORKS_SANDBOX') . '</p>';
+            $html[] = '<div class="bg-info p-10-5 mt-5"><span class="fa fa-info-circle"></span> ' . JText::_($this->textPrefix . '_WORKS_SANDBOX') . '</div>';
         }
 
         $html[] = '</div>';
@@ -155,10 +164,12 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      *
      * @throws \InvalidArgumentException
      * @throws \UnexpectedValueException
+     * @throws \OutOfBoundsException
+     * @throws \RuntimeException
      *
-     * @return null|array
+     * @return null|stdClass
      */
-    public function onPaymentsCheckout($context, &$item, &$params)
+    public function onPaymentsCheckout($context, $item, $params)
     {
         if (strcmp('com_crowdfunding.payments.checkout.stripe', $context) !== 0) {
             return null;
@@ -177,20 +188,23 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             return null;
         }
 
-        $errorResult = array(
-            'redirect_url' => JRoute::_(CrowdfundingHelperRoute::getBackingRoute($item->slug, $item->catslug)),
-            'message' => JText::_($this->textPrefix.'_ERROR_CANNOT_PROCESS_CHECKOUT')
-        );
+        $paymentResult                  = new stdClass;
+        $paymentResult->project         = null;
+        $paymentResult->reward          = null;
+        $paymentResult->transaction     = null;
+        $paymentResult->paymentSession  = null;
+        $paymentResult->serviceProvider = $this->serviceProvider;
+        $paymentResult->serviceAlias    = $this->serviceAlias;
+        $paymentResult->triggerEvents   = true;
+
+        $errorResult              = new stdClass;
+        $errorResult->redirectUrl = JRoute::_(CrowdfundingHelperRoute::getBackingRoute($item->slug, $item->catslug));
+        $errorResult->message     = JText::_($this->textPrefix.'_ERROR_CANNOT_PROCESS_CHECKOUT');
 
         // Validate request method
         $requestMethod = $this->app->input->getMethod();
         if (strcmp('POST', $requestMethod) !== 0) {
-            $this->log->add(
-                JText::_($this->textPrefix . '_ERROR_INVALID_REQUEST_METHOD'),
-                $this->debugType,
-                JText::sprintf($this->textPrefix . '_ERROR_INVALID_TRANSACTION_REQUEST_METHOD', $requestMethod)
-            );
-
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_REQUEST_METHOD'), $this->errorType, JText::sprintf($this->textPrefix . '_ERROR_INVALID_TRANSACTION_REQUEST_METHOD', $requestMethod));
             return $errorResult;
         }
 
@@ -200,7 +214,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         // Get token
         $token = $this->app->input->post->get('stripeToken');
         if (!$token) {
-            $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_TOKEN'), $_POST, $this->debugType);
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_TOKEN'), $this->errorType, $_POST);
             return $errorResult;
         }
 
@@ -208,39 +222,32 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         $paymentSessionContext = Crowdfunding\Constants::PAYMENT_SESSION_CONTEXT . (int)$item->id;
         $paymentSessionLocal   = $this->app->getUserState($paymentSessionContext);
 
-        $paymentSession = $this->getPaymentSession(array(
+        $paymentSessionRemote = $this->getPaymentSession(array(
             'session_id' => $paymentSessionLocal->session_id
         ));
 
         // DEBUG DATA
-        JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_PAYMENT_SESSION'), $this->debugType, $paymentSession->getProperties()) : null;
+        JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_PAYMENT_SESSION'), $this->debugType, $paymentSessionRemote->getProperties()) : null;
+
+        $containerHelper = new Crowdfunding\Container\Helper();
 
         // Get currency
-        $currencyId = $params->get('project_currency');
-        $currency   = Crowdfunding\Currency::getInstance(JFactory::getDbo(), $currencyId);
+        $currency   = $containerHelper->fetchCurrency($this->container, $params);
 
         // Validate transaction data
-        $validData = $this->prepareTransactionData($item, $currency->getCode(), $paymentSession);
+        $validData = $this->prepareTransactionData($item, $currency->getCode(), $paymentSessionRemote);
         if ($validData === null) {
             return $errorResult;
         }
 
-        // Get project
-        $projectId = Joomla\Utilities\ArrayHelper::getValue($validData, 'project_id');
-        $project   = Crowdfunding\Project::getInstance(JFactory::getDbo(), $projectId);
+        // Set the receiver ID.
+        $project                  = $containerHelper->fetchProject($this->container, $validData['project_id']);
+        $validData['receiver_id'] = $project->getUserId();
 
-        // DEBUG DATA
-        JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_PROJECT_OBJECT'), $this->debugType, $project->getProperties()) : null;
-
-        // Check for valid project
-        if (!$project->getId()) {
-            $this->log->add(
-                JText::_($this->textPrefix . '_ERROR_INVALID_PROJECT'),
-                $this->debugType,
-                JText::sprintf($this->textPrefix . '_TRANSACTION_DATA', var_export($validData, true))
-            );
-
-            return $errorResult;
+        // Get reward object.
+        $reward = null;
+        if ($validData['reward_id']) {
+            $reward = $containerHelper->fetchReward($this->container, $validData['reward_id'], $project->getId());
         }
 
         // Prepare description.
@@ -273,12 +280,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_CUSTOMER_OBJECT'), $this->debugType, var_export($customer, true)) : null;
 
             if (!$customer->id) {
-                $this->log->add(
-                    JText::_($this->textPrefix . '_ERROR_INVALID_CUSTOMER_OBJECT'),
-                    $this->debugType,
-                    JText::sprintf($this->textPrefix . '_CUSTOMER_OBJECT', var_export($customer, true))
-                );
-
+                $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_CUSTOMER_OBJECT'), $this->errorType, JText::sprintf($this->textPrefix . '_CUSTOMER_OBJECT', var_export($customer, true)));
                 return $errorResult;
             } else {
                 $serviceData = new Joomla\Registry\Registry;
@@ -289,58 +291,46 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             // Save transaction data.
             // If it is not completed, return empty results.
             // If it is complete, continue with process transaction data
-            $transactionData = $this->storeTransaction($validData, $project, $this->app->get('secret'));
-            if ($transactionData === null) {
-                $this->log->add(
-                    JText::_($this->textPrefix . '_ERROR_STORING_TRANSACTION'),
-                    $this->debugType,
-                    JText::sprintf($this->textPrefix . '_TRANSACTION_DATA', var_export($validData, true))
-                );
+            $transaction = $this->storeTransaction($validData, $this->app->get('secret'));
+            if ($transaction === null) {
+                $this->log->add(JText::_($this->textPrefix . '_ERROR_STORING_TRANSACTION'), $this->errorType, JText::sprintf($this->textPrefix . '_TRANSACTION_DATA', var_export($validData, true)));
                 return $errorResult;
             }
 
-            // Update the number of distributed reward.
-            $rewardId = Joomla\Utilities\ArrayHelper::getValue($transactionData, 'reward_id', 0, 'int');
-            $reward   = null;
-            if ($rewardId > 0) {
-                $reward = $this->updateReward($transactionData);
+            // Generate object of data, based on the transaction properties.
+            $paymentResult->transaction = $transaction;
 
-                // Validate the reward.
-                if (!$reward) {
-                    $transactionData['reward_id'] = 0;
-                }
+            // Generate object of data based on the project properties.
+            $paymentResult->project = $project;
+
+            // Generate object of data based on the reward properties.
+            if ($reward !== null and ($reward instanceof Crowdfunding\Reward)) {
+                $paymentResult->reward = $reward;
             }
 
-            // Remove payment session.
-            $this->closePaymentSession($paymentSession, true);
+            // Generate data object, based on the payment session properties.
+            $paymentResult->paymentSession = $paymentSessionRemote;
+
+            // Removing intention.
+            $this->removeIntention($paymentSessionRemote, $transaction);
 
         } catch (Stripe\Error\Card $e) {
-            $this->log->add(
-                JText::_($this->textPrefix . '_ERROR_STRIPE_ERROR'),
-                $this->debugType,
-                $e->getMessage()
-            );
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_STRIPE_ERROR'), $this->errorType, $e->getMessage());
 
             // Generate output data.
-            $output['redirect_url'] = CrowdfundingHelperRoute::getBackingRoute($item->slug, $item->catslug);
-            $output['message']      = $e->getMessage();
+            $errorResult->redirectUrl = JRoute::_(CrowdfundingHelperRoute::getBackingRoute($item->slug, $item->catslug));
+            $errorResult->message     = $e->getMessage();
 
-            return $output;
-
+            return $errorResult;
         } catch (Exception $e) {
-            $this->log->add(
-                JText::_($this->textPrefix . '_ERROR_SYSTEM'),
-                $this->debugType,
-                $e->getMessage()
-            );
-
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_SYSTEM'), $this->errorType, $e->getMessage());
             return $errorResult;
         }
 
         // Get next URL.
-        $output['redirect_url'] = CrowdfundingHelperRoute::getBackingRoute($item->slug, $item->catslug, 'share');
+        $paymentResult->redirectUrl = JRoute::_(CrowdfundingHelperRoute::getBackingRoute($item->slug, $item->catslug, 'share'));
 
-        return $output;
+        return $paymentResult;
     }
 
     /**
@@ -350,9 +340,13 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      * @param stdClass                 $item This is transaction object.
      * @param Joomla\Registry\Registry $params
      *
+     * @throws \InvalidArgumentException
+     * @throws \RuntimeException
+     * @throws \UnexpectedValueException
+     *
      * @return array|null
      */
-    public function onPaymentsCapture($context, &$item, &$params)
+    public function onPaymentsCapture($context, $item, $params)
     {
         if (!preg_match('/\.capture\.stripeconnect$/i', $context)) {
             return null;
@@ -377,65 +371,64 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
 
         $cfFinanceParams = JComponentHelper::getParams('com_crowdfundingfinance');
 
+        // Get keys.
+        $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
+        if (!$apiKeys['client_id']) {
+            $message = array(
+                'text' => JText::_($this->textPrefix . '_ERROR_CONFIGURATION'),
+                'type' => 'error'
+            );
+
+            return $message;
+        }
+
+        $platformAlias = (!$apiKeys['test']) ? 'production' : 'test';
+
+        $payout = new Crowdfundingfinance\Payout(JFactory::getDbo());
+        $payout->setSecretKey($this->app->get('secret'));
+        $payout->load(array('project_id' => $item->project_id));
+
+        if (!$payout->getId()) {
+            $message = array(
+                'text' => JText::_($this->textPrefix . '_ERROR_NO_PAYOUT_OPTIONS'),
+                'type' => 'error'
+            );
+
+            return $message;
+        }
+
+        $projectOwnerToken = Crowdfundingfinance\Stripe\Helper::getPayoutAccessToken($apiKeys, $payout, $cfFinanceParams->get('stripe_expiration_period', 7));
+        if ($projectOwnerToken === null) {
+            $message = array(
+                'text' => JText::_($this->textPrefix . '_ERROR_NO_PAYOUT_OPTIONS'),
+                'type' => 'error'
+            );
+
+            return $message;
+        }
+
+        $projectOwnerStripeData = $payout->getStripe();
+
+        // Calculate the fee.
+        $fundingType = $project->getFundingType();
+
+        $fees = $this->getFees($fundingType);
+        $fee  = $this->calculateFee($fundingType, $fees, $item->txn_amount);
+
+        // DEBUG DATA
+        JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_FEES'), $this->debugType, $fees) : null;
+        JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_FEE'), $this->debugType, $fee) : null;
+
+        $amount = round($item->txn_amount * 100, 0);
+
         try {
-            // Get keys.
-            $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
-            if (!$apiKeys['client_id']) {
-                $message = array(
-                    'text' => JText::_($this->textPrefix . '_ERROR_CONFIGURATION'),
-                    'type' => 'error'
-                );
-
-                return $message;
-            }
-
-            $platformAlias = (!$apiKeys['test']) ? 'production' : 'test';
-
-            $payout = new Crowdfundingfinance\Payout(JFactory::getDbo());
-            $payout->setSecretKey($this->app->get('secret'));
-            $payout->load(array('project_id' => $item->project_id));
-
-            if (!$payout->getId()) {
-                $message = array(
-                    'text' => JText::_($this->textPrefix . '_ERROR_NO_PAYOUT_OPTIONS'),
-                    'type' => 'error'
-                );
-
-                return $message;
-            }
-
-            $projectOwnerToken = Crowdfundingfinance\Stripe\Helper::getPayoutAccessToken($apiKeys, $payout, $cfFinanceParams->get('stripe_expiration_period', 7));
-            if ($projectOwnerToken === null) {
-                $message = array(
-                    'text' => JText::_($this->textPrefix . '_ERROR_NO_PAYOUT_OPTIONS'),
-                    'type' => 'error'
-                );
-
-                return $message;
-            }
-
-            $projectOwnerStripeData = $payout->getStripe();
-
-            // Calculate the fee.
-            $fundingType = $project->getFundingType();
-
-            $fees = $this->getFees($fundingType);
-            $fee  = $this->calculateFee($fundingType, $fees, $item->txn_amount);
-
-            // DEBUG DATA
-            JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_FEES'), $this->debugType, $fees) : null;
-            JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_FEE'), $this->debugType, $fee) : null;
-
-            $amount = round($item->txn_amount * 100, 0);
-
             // Create transaction object and get payment service data (customer ID).
-            $transaction = new Crowdfunding\Transaction(JFactory::getDbo());
-            /** @var Crowdfunding\Transaction\Transaction $transaction */
+            $transaction = new Transaction(JFactory::getDbo());
             $transaction->load($item->id);
 
             $serviceData = $transaction->getServiceData($this->app->get('secret'));
 
-            if (strlen($serviceData->get('customer_id')) > 0) {
+            if ($serviceData->get('customer_id') !== null and $serviceData->get('customer_id') !== '') {
                 jimport('Prism.libs.Stripe.init');
 
                 Stripe\Stripe::setApiKey($apiKeys['secret_key']);
@@ -489,33 +482,17 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
                     $transaction->storeServiceData($this->app->get('secret'));
 
                 } else {
-                    $this->log->add(JText::_($this->textPrefix . '_ERROR_DOCAPTURE'), $this->debugType, var_export($response, true));
-
-                    $message = array(
-                        'text' => JText::sprintf($this->textPrefix . '_ERROR_CAPTURING_UNSUCCESSFULLY_S', $item->txn_id),
-                        'type' => 'warning'
-                    );
-
-                    return $message;
+                    $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_RESPONSE'), $this->errorType, var_export($response, true));
+                    throw new RuntimeException(JText::_($this->textPrefix . '_ERROR_INVALID_RESPONSE'));
                 }
 
             } else {
-                // DEBUG DATA
-                JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'), $this->debugType, var_export($item, true)) : null;
-
-                $transaction->setStatus('canceled');
-                $transaction->updateStatus();
-
-                $message = array(
-                    'text' => JText::sprintf($this->textPrefix . '_ERROR_CUSTOMER_ID', $item->txn_id),
-                    'type' => 'warning'
-                );
-
-                return $message;
+                $this->log->add(JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'), $this->errorType, var_export($item, true));
+                throw new RuntimeException(JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'));
             }
 
         } catch (Exception $e) {
-            $this->log->add(JText::_($this->textPrefix . '_ERROR_DOCAPTURE'), $this->debugType, $e->getMessage());
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_DOCAPTURE'), $this->errorType, $e->getMessage());
 
             $message = array(
                 'text' => JText::sprintf($this->textPrefix . '_ERROR_CAPTURING_UNSUCCESSFULLY_S', $item->txn_id),
@@ -542,7 +519,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      *
      * @return array|null
      */
-    public function onPaymentsVoid($context, &$item, &$params)
+    public function onPaymentsVoid($context, $item, $params)
     {
         if (!preg_match('/\.void\.stripeconnect$/i', $context)) {
             return null;
@@ -562,8 +539,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         }
 
         try {
-            /** @var Crowdfunding\Transaction\Transaction $transaction */
-            $transaction = new Crowdfunding\Transaction(JFactory::getDbo());
+            $transaction = new Transaction(JFactory::getDbo());
             $transaction->load($item->id);
 
             $serviceData = $transaction->getServiceData($this->app->get('secret'));
@@ -572,14 +548,11 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             if (strlen($serviceData->get('customer_id')) > 0) {
                 // Get keys.
                 $cfFinanceParams = JComponentHelper::getParams('com_crowdfundingfinance');
-                $apiKeys = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
-                if (!$apiKeys['secret_key']) {
-                    $this->log->add(
-                        JText::_($this->textPrefix . '_ERROR_SECRET_KEY_MISSING'),
-                        $this->debugType,
-                        var_export($item, true)
-                    );
+                $apiKeys         = Crowdfundingfinance\Stripe\Helper::getKeys($cfFinanceParams);
 
+                if (!$apiKeys['secret_key']) {
+                    $this->log->add(JText::_($this->textPrefix . '_ERROR_SECRET_KEY_MISSING'), $this->errorType, var_export($item, true));
+                    throw new RuntimeException(JText::_($this->textPrefix . '_ERROR_SECRET_KEY_MISSING'));
                 } else {
                     jimport('Prism.libs.Stripe.init');
 
@@ -589,11 +562,8 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
                 }
 
             } else {
-                $this->log->add(
-                    JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'),
-                    $this->debugType,
-                    var_export($item, true)
-                );
+                $this->log->add(JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'), $this->errorType, var_export($item, true));
+                throw new RuntimeException(JText::_($this->textPrefix . '_ERROR_CUSTOMER_ID'));
             }
 
             // Reset service data.
@@ -605,8 +575,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             $transaction->updateStatus();
 
         } catch (Exception $e) {
-            // DEBUG DATA
-            JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_ERROR_DOVOID'), $this->debugType, $e->getMessage()) : null;
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_DOVOID'), $this->errorType, $e->getMessage());
 
             $message = array(
                 'text' => JText::sprintf($this->textPrefix . '_ERROR_VOID_UNSUCCESSFULLY', $item->txn_id),
@@ -631,6 +600,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
      * @param string                $currencyCode
      * @param Crowdfunding\Payment\Session $paymentSession
      *
+     * @throws \RuntimeException
      * @return array
      */
     protected function prepareTransactionData(&$item, $currencyCode, $paymentSession)
@@ -638,7 +608,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         $date     = new JDate();
 
         // Prepare transaction data.
-        $transaction = array(
+        $transactionData = array(
             'investor_id'      => $paymentSession->getUserId(),
             'receiver_id'      => (int)$item->user_id,
             'project_id'       => $paymentSession->getProjectId(),
@@ -653,47 +623,56 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         );
 
         // Check User Id, Project ID and Transaction ID.
-        if (!$transaction['project_id'] or !$transaction['txn_id']) {
-            // Log data in the database
-            $this->log->add(
-                JText::_($this->textPrefix . '_ERROR_INVALID_TRANSACTION_DATA'),
-                'STRIPE_PAYMENT_PLUGIN_ERROR',
-                $transaction
-            );
-
+        if (!$transactionData['project_id'] or !$transactionData['txn_id']) {
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_TRANSACTION_DATA'), $this->errorType, $transactionData);
             return null;
         }
 
-        return $transaction;
+        // Check if project record exists in database.
+        $projectRecord = new Crowdfunding\Validator\Project\Record(JFactory::getDbo(), $transactionData['project_id']);
+        if (!$projectRecord->isValid()) {
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_PROJECT'), $this->errorType, $transactionData);
+            return null;
+        }
+
+        // Check if reward record exists in database.
+        if ($transactionData['reward_id'] > 0) {
+            $rewardRecord = new Crowdfunding\Validator\Reward\Record(JFactory::getDbo(), $transactionData['reward_id'], array('state' => Prism\Constants::PUBLISHED));
+            if (!$rewardRecord->isValid()) {
+                $this->log->add(JText::_($this->textPrefix . '_ERROR_INVALID_REWARD'), $this->errorType, $transactionData);
+                return null;
+            }
+        }
+        
+        return $transactionData;
     }
 
     /**
      * Save transaction
      *
      * @param array $transactionData
-     * @param Crowdfunding\Project $project
      * @param string$secret
      *
      * @throws \InvalidArgumentException
      * @throws \RuntimeException
      *
-     * @return null|array
+     * @return Transaction|null
      */
-    protected function storeTransaction(array $transactionData, Crowdfunding\Project $project, $secret)
+    protected function storeTransaction(array $transactionData, $secret)
     {
         // Get transaction by txn ID
         $keys        = array(
-            'txn_id' => Joomla\Utilities\ArrayHelper::getValue($transactionData, 'txn_id')
+            'txn_id' => ArrayHelper::getValue($transactionData, 'txn_id')
         );
 
-        /** @var Crowdfunding\Transaction\Transaction $transaction */
-        $transaction = new Crowdfunding\Transaction(JFactory::getDbo());
+        $transaction = new Transaction(JFactory::getDbo());
         $transaction->load($keys);
 
         // DEBUG DATA
         JDEBUG ? $this->log->add(JText::_($this->textPrefix . '_DEBUG_TRANSACTION_OBJECT'), $this->debugType, $transaction->getProperties()) : null;
 
-        // Check for existed transaction
+        // Check for existed transaction.
+        // If the transaction status is completed, stop the process.
         if ($transaction->getId() and $transaction->isCompleted()) {
             return null;
         }
@@ -705,20 +684,38 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             $transactionData['extra_data'] = null;
         }
 
-        // Store the new transaction data.
+        // IMPORTANT: It must be before ->bind();
+        $options = array(
+            'old_status' => $transaction->getStatus(),
+            'new_status' => $transactionData['txn_status']
+        );
+
+        // Create the new transaction record if there is not record.
+        // If there is new record, store new data with new status.
+        // Example: It has been 'pending' and now is 'completed'.
+        // Example2: It has been 'pending' and now is 'failed'.
         $transaction->bind($transactionData);
-        $transaction->store();
 
-        $transaction->storeServiceData($secret);
+        // Start database transaction.
+        $db = JFactory::getDbo();
+        $db->transactionStart();
 
-        // Add funds to the project.
-        $amount = Joomla\Utilities\ArrayHelper::getValue($transactionData, 'txn_amount');
-        $project->addFunds($amount);
-        $project->storeFunds();
+        try {
+            $transactionManager = new TransactionManager($db);
+            $transactionManager->setTransaction($transaction);
+            $transactionManager->process('com_crowdfunding.payment', $options);
 
-        // Set transaction ID.
-        $transactionData['id'] = $transaction->getId();
+            $transaction->storeServiceData($secret);
+        } catch (Exception $e) {
+            $db->transactionRollback();
 
-        return $transactionData;
+            $this->log->add(JText::_($this->textPrefix . '_ERROR_TRANSACTION_PROCESS'), $this->errorType, $e->getMessage());
+            return null;
+        }
+
+        // Commit database transaction.
+        $db->transactionCommit();
+
+        return $transaction;
     }
 }
