@@ -1,6 +1,6 @@
 CrowdfundingPayment - Stripe Connect
 ==========================
-( Version 1.2 )
+( Version 1.2.1 )
 - - -
 
 This is a plug-in for Crowdfunding platform, which provides an ability to make payments via Stripe Connect.
@@ -10,6 +10,9 @@ This is a plug-in for Crowdfunding platform, which provides an ability to make p
 
 Changelog
 ---------
+
+###v1.2.1
+* Fixed form submission after payment.
 
 ###v1.2
 * It was made compatible with Crowdfunding v2.5.

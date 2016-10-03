@@ -124,7 +124,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         $optionalData = array($dataLabel, $dataPanelLabel, $dataName, $dataImage);
         $optionalData = array_filter($optionalData);
         
-        $html[] = '<form action="/index.php?com_crowdfunding" method="post">';
+        $html[] = '<form action="'.JRoute::_('index.php?option=com_crowdfunding').'" method="post">';
         $html[] = '<script
             src="https://checkout.stripe.com/checkout.js" class="stripe-button"
             data-key="' . $apiKeys['published_key'] . '"

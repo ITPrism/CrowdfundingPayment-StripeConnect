@@ -6,8 +6,8 @@
     <license>http://www.gnu.org/licenses/gpl-3.0.en.html GNU/GPLv3</license>
     <authorEmail>todor@itprism.com</authorEmail>
     <authorUrl>http://itprism.com</authorUrl>
-    <version>1.2</version>
-    <creationDate>18 September, 2016</creationDate>
+    <version>1.2.1</version>
+    <creationDate>03 October, 2016</creationDate>
     <description><![CDATA[
 	<p>CrowdfundingPayment - Stripe Connect is a plugin that provides an ability to make payments via Stripe Connect,</p>
 	<p><a href='http://itprism.com/' target='_blank'>Subscribe for the newsletter</a> to receive information about updates and new ITPrism extensions.</p>
@@ -60,6 +60,7 @@
 	</config>
 
     <updateservers>
-        <server type="extension" priority="1" name="CrowdfundingPayment - Stripe Connect ( from CDN )">http://cdn.itprism.com/updates/crowdfunding/plugins/plg_crowdfundingpayment_stripeconnect.xml</server>
+        <server type="extension" priority="1" name="CrowdfundingPayment - Stripe Connect">http://cdn.itprism.com/updates/crowdfunding/plugins/plg_crowdfundingpayment_stripeconnect.xml</server>
+        <server type="extension" priority="2" name="CrowdfundingPayment - Stripe Connect">http://cdn.itprism.com/updates/crowdfunding/plugins/stripeconnect.xml</server>
     </updateservers>
 </extension>
