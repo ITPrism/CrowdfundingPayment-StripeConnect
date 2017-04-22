@@ -1,6 +1,12 @@
 CrowdfundingPayment - Stripe Connect Changelog
 =============================================
 
+###v1.3.2
+* Added log information about fees.
+
+###v1.3.1
+* Fixed sandbox message.
+
 ###v1.3
 * Improved
 

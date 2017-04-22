@@ -116,7 +116,7 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
         $dataDescription = JText::sprintf($this->textPrefix . '_INVESTING_IN_S', htmlentities($item->title, ENT_QUOTES, 'UTF-8'));
 
         // Get amount.
-        $dataAmount = abs($item->amount * 100);
+        $dataAmount     = abs($item->amount * 100);
 
         $dataPanelLabel = (!$this->params->get('panel_label')) ? '' : 'data-panel-label="' . $this->params->get('panel_label') . '"';
         $dataLabel      = (!$this->params->get('label')) ? '' : 'data-label="' . $this->params->get('label') . '"';
@@ -147,11 +147,22 @@ class plgCrowdfundingPaymentStripeConnect extends Crowdfunding\Payment\Plugin
             $html[] = '<p>' . htmlentities($this->params->get('additional_info'), ENT_QUOTES, 'UTF-8') . '</p>';
         }
 
-        if ($this->params->get('sandbox_enabled', 1)) {
-            $html[] = '<div class="bg-info p-10-5 mt-5"><span class="fa fa-info-circle"></span> ' . JText::_($this->textPrefix . '_WORKS_SANDBOX') . '</div>';
+        if ($cfFinanceParams->get('stripe_sandbox_enabled', Prism\Constants::YES)) {
+            $html[] = '<div class="alert alert-info p-10-5 mt-5"><span class="fa fa-info-circle"></span> ' . JText::_($this->textPrefix . '_WORKS_SANDBOX') . '</div>';
         }
 
         $html[] = '</div>';
+
+        // DEBUG DATA
+        if (JDEBUG) {
+            $this->log->add(JText::_($this->textPrefix . '_DEBUG_PROJECT_OBJECT'), $this->debugType, $item);
+
+            $fees = $this->getFees($item->fundingType);
+            $fee  = $this->calculateFee($item->fundingType, $fees, $item->amount);
+
+            $this->log->add(JText::_($this->textPrefix . '_DEBUG_FEES'), $this->debugType, $fees);
+            $this->log->add(JText::_($this->textPrefix . '_DEBUG_FEES_FOR_PAYING'), $this->debugType, $fee);
+        }
 
         return implode("\n", $html);
     }
